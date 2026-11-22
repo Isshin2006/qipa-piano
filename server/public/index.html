@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>奇葩钢琴 Web 版 · PC 控制</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root { --bg:#0f1420; --panel:#1a2233; --key:#2a3550; --keydn:#4a8fd4; --txt:#dce6f5; --dim:#8fa0bd; }
+* { box-sizing:border-box; -webkit-user-select:none; user-select:none; }
+body { margin:0; background:var(--bg); color:var(--txt); font-family:"Microsoft YaHei",system-ui,sans-serif; }
+#wrap { max-width:1100px; margin:0 auto; padding:14px; }
+h1 { font-size:20px; margin:6px 0 10px; }
+#status { font-size:13px; color:var(--dim); margin-bottom:10px; min-height:18px; }
+#status b { color:#7ec8ff; }
+#piano { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; max-width:760px; margin:0 auto; }
+.key { height:86px; border-radius:12px; background:var(--key); border:2px solid #3a4a70;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  cursor:pointer; transition:background .05s; }
+.key .lab { font-size:26px; font-weight:700; }
+.key .sub { font-size:11px; color:var(--dim); margin-top:4px; }
+.key.dn { background:var(--keydn); transform:scale(.97); }
+.key.dn .sub { color:#fff; }
+#panel { display:flex; gap:14px; margin-top:16px; flex-wrap:wrap; align-items:flex-start; }
+.box { background:var(--panel); border-radius:12px; padding:12px 14px; flex:1; min-width:280px; }
+.box h3 { margin:0 0 8px; font-size:14px; color:#9fc3ff; }
+button { background:#2a3a5f; color:var(--txt); border:1px solid #40557f; border-radius:8px;
+  padding:8px 14px; cursor:pointer; font-size:13px; }
+button:hover { background:#3a5280; }
+button:disabled { opacity:.4; cursor:not-allowed; }
+button.primary { background:#2d6cb5; border-color:#4a8fd4; }
+button.mini { padding:4px 10px; font-size:12px; }
+input[type=file] { font-size:12px; }
+#log { background:#0a0e18; border-radius:8px; padding:8px; height:150px; overflow-y:auto;
+  font-size:12px; font-family:Consolas,monospace; color:#9fb8d8; white-space:pre-wrap; }
+#calib { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none; flex-direction:column;
+  align-items:center; padding:12px; z-index:10; }
+#calibImg { max-width:95vw; max-height:78vh; border:1px solid #345; cursor:crosshair; }
+#calibTip { font-size:14px; margin:8px; color:#ffd27e; }
+.calib-dot { background:#ff6b6b; border-radius:50%; width:26px; height:26px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:13px; }
+/* 音轨/裁剪/曲库 */
+.tk { display:flex; align-items:center; gap:6px; margin:3px 0; font-size:13px; flex-wrap:wrap; }
+.tk select { background:#0a0e18; color:var(--txt); border:1px solid #40557f; border-radius:6px; padding:3px 6px; font-size:12px; }
+#cutRow { display:flex; align-items:center; gap:6px; margin:8px 0 0; font-size:12px; color:var(--dim); flex-wrap:wrap; }
+#cutRow input { width:64px; background:#0a0e18; color:var(--txt); border:1px solid #40557f; border-radius:6px; padding:4px 6px; font-size:12px; }
+#songInfo { font-size:13px; color:#cfe0f5; margin-top:6px; min-height:18px; }
+#resumeRow { display:none; margin-top:8px; font-size:13px; color:#ffd27e;
+  background:#2a2416; border:1px solid #6b5a2a; border-radius:8px; padding:6px 10px;
+  align-items:center; gap:10px; }
+#phoneList { display:flex; gap:8px; font-size:13px; max-height:260px; }
+#phoneList .col { flex:1; min-width:0; overflow-y:auto; background:#0a0e18; border-radius:8px; padding:6px; }
+#phoneList .grp { color:#9fc3ff; font-size:12px; margin:0 0 4px; position:sticky; top:0; background:#0a0e18; padding:2px 0; }
+#phoneList .it { display:block; width:100%; text-align:left; background:transparent;
+  border:none; border-radius:6px; padding:4px 8px; cursor:pointer; color:var(--txt); font-size:13px; }
+#phoneList .it:hover { background:#243250; }
+#phoneList .it.cur { color:#7ec8ff; font-weight:700; }
+.dim { color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>🎹 奇葩钢琴 Web 版 <span style="font-size:12px;color:var(--dim)">PC 键鼠 → adb → 手机,按住即长按</span></h1>
+  <div id="status">检测设备中…</div>
+  <div style="margin-bottom:8px"><button id="btnPrep">⚡ 准备注入器(首次点)</button></div>
+
+  <div id="piano"></div>
+
+  <div id="panel">
+    <div class="box">
+      <h3>🎵 自动演奏</h3>
+      <input type="file" id="midiFile" accept=".mid,.midi,.txt">
+      <div id="songInfo"></div>
+      <div id="trackList" style="margin:6px 0;font-size:13px"></div>
+      <div id="cutRow">
+        <span id="cutLabel">起音止音</span>
+        起 <input id="cutA" type="number" step="any" min="0" placeholder="留空">
+        止 <input id="cutB" type="number" step="any" min="0" placeholder="留空">
+        <span id="cutUnit">秒</span>
+        <button class="mini" id="btnCutApply">应用裁剪</button>
+        <button class="mini" id="btnCutClear">清除</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="primary" id="btnPlay" disabled>▶ 播放/续播</button>
+        <button id="btnPause" disabled>⏸ 暂停</button>
+        <button id="btnStop" disabled>■ 停止(记进度)</button>
+        <button id="btnRestart" disabled>⏮ 从头</button>
+      </div>
+      <div id="resumeRow"><span id="resumeText"></span><button class="mini" id="btnResume">从这续播</button></div>
+      <div id="progressWrap" style="margin:10px 0 0">
+        <div id="progressBar" style="background:#0a0e18;border-radius:8px;height:22px;position:relative;cursor:pointer">
+          <div id="progressFill" style="background:linear-gradient(90deg,#3a8fd4,#7ec8ff);height:100%;width:0%;border-radius:8px"></div>
+          <div id="progressText" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:#eaf2ff">0:00 / 0:00</div>
+        </div>
+        <div id="stepLabel" style="font-size:12px;color:var(--dim);text-align:center;margin-top:4px">← 倒退 5s · 空格 播放/暂停 · → 前进 5s · ↑↓ 调秒数</div>
+      </div>
+    </div>
+
+    <div class="box" style="flex:1.8;min-width:360px">
+      <h3>📱 手机曲库 <button class="mini" id="btnPhoneRefresh" style="float:right">↺ 刷新</button></h3>
+      <div class="dim">只读 QipaPiano 的 songs · midi · pc长按 三个文件夹(各一列),不扫 Download</div>
+      <div id="phoneList"><div class="dim" style="padding:6px">等待设备…</div></div>
+      <div style="margin-top:8px"><button class="mini" id="btnPhoneCache">📥 导入手机脚本缓存</button></div>
+    </div>
+
+    <div class="box">
+      <h3>🎯 键位标定(第一次要,一次永久)</h3>
+      <div style="font-size:12px;color:var(--dim)">手机停在钢琴界面 → 截图 → 依次点 15 个琴键中心(左键/右键均可)</div>
+      <div style="margin-top:8px">
+        <button id="btnCalib">开始标定</button>
+        <button id="btnSaveCalib" disabled>保存标定</button>
+        <button id="btnResetCalib">重置标定(回默认网格)</button>
+      </div>
+    </div>
+
+    <div class="box" style="flex:2;min-width:340px">
+      <h3>📋 日志</h3>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<div id="calib">
+  <div id="calibTip"></div>
+  <img id="calibImg" alt="">
+  <div><button id="calibCancel">取消</button> <button id="calibSave" style="display:none">完成保存</button></div>
+</div>
+
+<script>
+'use strict';
+/* ===== 常量 ===== */
+const KEYS = ['1','2','3','4','5','6','7',"1'","2'","3'","4'","5'","6'","7'","1''"];
+const KEYBOARD = { '1':'1','2':'2','3':'3','4':'4','5':'5',
+                   'q':'6','w':'7','e':"1'",'r':"2'",'t':"3'",
+                   'a':"4'",'s':"5'",'d':"6'",'f':"7'",'g':"1''" };
+const SUB = { '1':'do', '2':'re', '3':'mi', '4':'fa', '5':'sol', '6':'la', '7':'si',
+              "1'":'do⁺',"2'":'re⁺',"3'":'mi⁺',"4'":'fa⁺',"5'":'sol⁺',"6'":'la⁺',"7'":'si⁺',"1''":'do⁺⁺' };
+const TONIC_NAMES = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
+const $ = s => document.querySelector(s);
+function fetchT(url, opt, ms) {
+  return Promise.race([
+    fetch(url, opt),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('请求超时 ' + (ms || 30000) + 'ms')), ms || 30000))
+  ]);
+}
+const log = m => { const d = $('#log'); d.textContent += m + '\n'; d.scrollTop = d.scrollHeight; };
+
+/* ===== 钢琴键 ===== */
+const piano = $('#piano');
+const keyEls = {};
+KEYS.forEach(k => {
+  const el = document.createElement('div');
+  el.className = 'key'; el.dataset.key = k;
+  el.innerHTML = '<div class="lab">' + k + '</div><div class="sub">' + (SUB[k] || '') + '</div>';
+  piano.appendChild(el);
+  keyEls[k] = el;
+});
+
+/* ===== 按键(按下/抬起,支持长按;最短 120ms 防双击误断) ===== */
+const downKeys = new Set();
+const keyDownAt = new Map();
+async function keyDown(k) {
+  if (downKeys.has(k)) return;
+  downKeys.add(k);
+  keyDownAt.set(k, Date.now());
+  keyEls[k].classList.add('dn');
+  try {
+    const r = await fetchT('/api/keydown', { method: 'POST', body: JSON.stringify({ key: k }),
+      headers: { 'Content-Type': 'application/json' } });
+    const j = await r.json();
+    if (!j.ok) { log('❌ ' + k + ': ' + (j.err || '')); }
+  } catch (e) { log('❌ ' + k + ': ' + e.message); }
+}
+async function keyUp(k) {
+  if (!downKeys.has(k)) return;
+  downKeys.delete(k);
+  keyEls[k].classList.remove('dn');
+  const held = Date.now() - (keyDownAt.get(k) || 0);
+  if (held < 120) await new Promise(r => setTimeout(r, 120 - held));   // 最短音长,双击不切音
+  try { await fetchT('/api/keyup', { method: 'POST', body: JSON.stringify({ key: k }),
+    headers: { 'Content-Type': 'application/json' } }); } catch (e) {}
+  keyDownAt.delete(k);
+}
+KEYS.forEach(k => {
+  const el = keyEls[k];
+  el.addEventListener('pointerdown', e => { e.preventDefault(); keyDown(k); });
+  el.addEventListener('pointerup', e => { e.preventDefault(); keyUp(k); });
+  el.addEventListener('pointerleave', () => keyUp(k));
+  el.addEventListener('pointercancel', () => keyUp(k));
+});
+window.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  const tg = e.target && e.target.tagName;
+  if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;   // 裁剪输入框里打字不弹琴
+  const k = KEYBOARD[e.key.toLowerCase()];
+  if (k) { e.preventDefault(); keyDown(k); }
+});
+window.addEventListener('keyup', e => {
+  const tg = e.target && e.target.tagName;
+  if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
+  const k = KEYBOARD[e.key.toLowerCase()];
+  if (k) { e.preventDefault(); keyUp(k); }
+});
+window.addEventListener('blur', () => { [...downKeys].forEach(keyUp); });
+/* 页面关闭兜底:释放所有按住的键 */
+window.addEventListener('pagehide', () => { try { fetch('/api/keyup-all', { method: 'POST', keepalive: true }); } catch (e) {} });
+/* 卡键兜底:按住超 45s 自动释放 */
+setInterval(() => {
+  const now = Date.now();
+  [...downKeys].forEach(k => { if (now - (keyDownAt.get(k) || 0) > 45000) { log('⚠ ' + k + ' 按住超45s,自动释放'); keyUp(k); } });
+}, 20000);
+
+/* ===== 全局播放状态 ===== */
+let device = null;
+let songName = '', isTxt = false, midiTxt = '', midiB64 = '';
+let trackCfg = [];           // [{on, tonic:'auto'|音名}]
+let parseInfo = null;
+let playDur = 0, curMs = 0;
+let playingState = false, clientPaused = false, barDragging = false;
+let seekStep = 5;
+let startMsNext = 0;         // 下次 ▶ 的起始位置(缓存续播/从头)
+let cachedPos = 0;           // 本机缓存里这首歌的进度
+let cachedTrackCfg = null;   // 缓存里的音轨配置(首次解析前暂存)
+let pcSession = false;       // 手机端触发的 PC 演奏进行中
+
+function haveSong() { return !!(midiTxt || midiB64); }
+function fmtTime(ms) {
+  const s = Math.round(ms / 1000);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+function updateProgress(ms, dur) {
+  const pct = dur ? Math.min(100, ms / dur * 100) : 0;
+  $('#progressFill').style.width = pct + '%';
+  $('#progressText').textContent = fmtTime(ms) + ' / ' + fmtTime(dur);
+}
+function setControls() {
+  const on = !!(device && (parseInfo || clientPaused || pcSession));
+  $('#btnPlay').disabled = !on;
+  $('#btnPause').disabled = !on;
+  $('#btnStop').disabled = !on;
+  $('#btnRestart').disabled = !on;
+}
+function updateStepLabel() { $('#stepLabel').textContent = '← 倒退 ' + seekStep + 's · 空格 播放/暂停 · → 前进 ' + seekStep + 's · ↑↓ 调秒数'; }
+function showResume(ms) {
+  if (!ms || !songName) { $('#resumeRow').style.display = 'none'; return; }
+  $('#resumeText').textContent = '↩ 「' + songName + '」上次播放到 ' + fmtTime(ms);
+  $('#resumeRow').style.display = 'flex';
+}
+function cutInputsToParams() {
+  /* 界面输入 → 请求参数:txt=拍(startBeat/endBeat) midi=毫秒(cutA/cutB) */
+  const a = $('#cutA').value.trim(), b = $('#cutB').value.trim();
+  if (isTxt) return { startBeat: a !== '' ? +a : null, endBeat: b !== '' ? +b : null };
+  return { cutA: a !== '' ? Math.round(+a * 1000) : null, cutB: b !== '' ? Math.round(+b * 1000) : null };
+}
+function paramsToCutInputs(entry) {
+  $('#cutA').value = ''; $('#cutB').value = '';
+  if (!entry) return;
+  if (entry.mode === 'txt') {
+    if (entry.startBeat != null) $('#cutA').value = entry.startBeat;
+    if (entry.endBeat != null) $('#cutB').value = entry.endBeat;
+  } else if (entry.mode === 'midi') {
+    if (entry.cutA != null) $('#cutA').value = entry.cutA / 1000;
+    if (entry.cutB != null) $('#cutB').value = entry.cutB / 1000;
+  }
+}
+async function saveCache(patch) {
+  if (!songName) return;
+  try { await fetchT('/api/cache', { method: 'POST', body: JSON.stringify(Object.assign({ name: songName }, patch)),
+    headers: { 'Content-Type': 'application/json' } }, 8000); } catch (e) {}
+}
+async function loadCacheFor(name) {
+  cachedPos = 0;
+  try {
+    const j = await (await fetchT('/api/cache?name=' + encodeURIComponent(name), {}, 8000)).json();
+    const e = j.entry;
+    if (e) {
+      paramsToCutInputs(e);
+      cachedTrackCfg = e.tracks && e.tracks.length ? e.tracks : null;   // 此刻 trackCfg 还没建,先暂存到首次解析
+      cachedPos = e.posMs || 0;
+      startMsNext = cachedPos;
+    }
+  } catch (err) {}
+}
+
+/* ===== 解析(文件/手机曲库共用) ===== */
+let repTimer = null;
+function scheduleReparse() { clearTimeout(repTimer); repTimer = setTimeout(parseSong, 400); }
+async function parseSong() {
+  if (!haveSong()) return;
+  $('#songInfo').textContent = '解析中…';
+  const cut = cutInputsToParams();
+  const body = { name: songName, tracks: trackCfg };
+  if (isTxt) { body.txt = midiTxt; if (cut.startBeat != null) body.startBeat = cut.startBeat; if (cut.endBeat != null) body.endBeat = cut.endBeat; }
+  else { body.b64 = midiB64; if (cut.cutA != null) body.cutA = cut.cutA; if (cut.cutB != null) body.cutB = cut.cutB; }
+  try {
+    const r = await fetchT('/api/midi/parse', { method: 'POST', body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' } });
+    const j = await r.json();
+    if (!j.ok) { $('#songInfo').textContent = '❌ ' + (j.err || '解析失败'); return; }
+    parseInfo = j;
+    playDur = j.durationSec * 1000;
+    /* 合并每轨自动选调显示:优先缓存里的音轨配置,其次沿用当前用户改过的,否则默认 */
+    const srcCfg = (cachedTrackCfg && cachedTrackCfg.length === j.tracks.length) ? cachedTrackCfg : trackCfg;
+    trackCfg = j.tracks.map((t, i) => ({ on: srcCfg[i] ? srcCfg[i].on !== false : true, tonic: srcCfg[i] && srcCfg[i].tonic ? srcCfg[i].tonic : 'auto' }));
+    cachedTrackCfg = null;   // 只用一次;之后重解析沿用用户改过的 trackCfg
+    renderTracks(j);
+    $('#songInfo').innerHTML = '🎵 <b>' + songName + '</b>' + (isTxt ? ' (谱)' : ' (MIDI)') +
+      ' · 和弦 ' + j.chords + ' · 时长 ' + fmtTime(playDur) + ' · 事件 ' + j.eventCount;
+    updateProgress(Math.min(curMs, playDur), playDur);
+    setControls();
+    saveCache({ mode: isTxt ? 'txt' : 'midi', startBeat: cut.startBeat, endBeat: cut.endBeat, cutA: cut.cutA, cutB: cut.cutB, tracks: trackCfg });
+  } catch (e) { $('#songInfo').textContent = '❌ ' + e.message; }
+}
+function renderTracks(j) {
+  const isMidi = !isTxt;
+  $('#trackList').innerHTML = j.tracks.map((t, i) => {
+    const sel = isMidi
+      ? '<select data-ti="' + i + '">' +
+        '<option value="auto"' + ((trackCfg[i] && trackCfg[i].tonic === 'auto') ? ' selected' : '') + '>自动' + (t.tonicAuto ? '(' + t.tonicAuto + ')' : '') + '</option>' +
+        TONIC_NAMES.map(n => '<option' + (trackCfg[i] && trackCfg[i].tonic === n ? ' selected' : '') + '>' + n + '</option>').join('') +
+        '</select>'
+      : '';
+    return '<div class="tk"><input type="checkbox" data-ti="' + i + '"' + ((trackCfg[i] && trackCfg[i].on) ? ' checked' : '') + '> ' +
+      t.name + ' (' + t.notes + '音)' + sel + '</div>';
+  }).join('');
+  $('#trackList').querySelectorAll('input[type=checkbox]').forEach(cb =>
+    cb.addEventListener('change', () => { trackCfg[+cb.dataset.ti].on = cb.checked; scheduleReparse(); }));
+  $('#trackList').querySelectorAll('select').forEach(sel =>
+    sel.addEventListener('change', () => { trackCfg[+sel.dataset.ti].tonic = sel.value; scheduleReparse(); }));
+}
+function setSong(name, kind, data) {
+  songName = name.replace(/\.(mid|midi|txt|json)$/i, '');
+  isTxt = kind === 'txt';
+  midiTxt = isTxt ? data : '';
+  midiB64 = isTxt ? '' : data;
+  curMs = 0; playingState = false; clientPaused = false; startMsNext = 0;
+  trackCfg = [];
+  refreshCutRow();
+  return loadCacheFor(songName).then(parseSong).then(() => { if (cachedPos) showResume(cachedPos); });
+}
+
+/* ===== 本地文件导入 ===== */
+function toB64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+$('#midiFile').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    if (/\.txt$/i.test(f.name)) setSong(f.name, 'txt', await f.text());
+    else setSong(f.name, 'midi', toB64(new Uint8Array(await f.arrayBuffer())));
+  } catch (err) { log('❌ 读取文件: ' + err.message); }
+});
+
+/* ===== 手机曲库 ===== */
+async function loadPhoneList() {
+  if (!device) { $('#phoneList').innerHTML = '<div class="dim" style="padding:6px">手机未连接</div>'; return; }
+  $('#phoneList').innerHTML = '<div class="dim" style="padding:6px">扫描手机目录中…</div>';
+  try {
+    const j = await (await fetchT('/api/phone/list', {}, 20000)).json();
+    if (!j.ok) { $('#phoneList').innerHTML = '<div class="dim" style="padding:6px">❌ ' + (j.err || '') + '</div>'; return; }
+    if (!j.songs.length) { $('#phoneList').innerHTML = '<div class="dim" style="padding:6px">手机曲库为空</div>'; return; }
+    /* 按文件夹分列(服务器按 songs→midi→pc长按 顺序返回),每列独立滚动 */
+    const byDir = [];
+    for (const s of j.songs) {
+      let d = byDir.find(x => x.dir === s.dir);
+      if (!d) { d = { dir: s.dir, label: s.dir.replace(/\/$/, '').split('/').pop(), items: [] }; byDir.push(d); }
+      d.items.push(s);
+    }
+    $('#phoneList').innerHTML = byDir.map(d =>
+      '<div class="col"><div class="grp">📁 ' + d.label + ' (' + d.items.length + ')</div>' +
+      d.items.map(s => '<button class="it" data-p="' + s.path + '" data-k="' + s.kind + '" data-n="' + s.file + '">▸ ' + s.name + '</button>').join('') +
+      '</div>').join('');
+    $('#phoneList').querySelectorAll('.it').forEach(b => b.addEventListener('click', () => loadPhoneSong(b)));
+    /* 手机端设置备份可用时提示(不自动合并,点「导入手机脚本缓存」才写入本机缓存) */
+    fetchT('/api/phone/cache', {}, 15000).then(r => r.json()).then(pc => {
+      if (pc && pc.ok) log('📥 检测到手机端设置备份 ' + pc.from + '(' + Object.keys(pc.songTweaks || {}).length + ' 首参数),点「导入手机脚本缓存」合并');
+    }).catch(() => {});
+  } catch (e) { $('#phoneList').innerHTML = '<div class="dim" style="padding:6px">❌ ' + e.message + '</div>'; }
+}
+async function loadPhoneSong(btn) {
+  const p = btn.dataset.p, k = btn.dataset.k, n = btn.dataset.n;
+  $('#phoneList').querySelectorAll('.it').forEach(x => x.classList.remove('cur'));
+  btn.classList.add('cur');
+  btn.textContent = '⏳ 读取中 ' + n;
+  try {
+    const j = await (await fetchT('/api/phone/file?path=' + encodeURIComponent(p), {}, 30000)).json();
+    if (!j.ok) { btn.textContent = '❌ ' + (j.err || ''); log('❌ 手机文件: ' + (j.err || '')); return; }
+    log('📖 已从手机读取: ' + j.name);
+    await setSong(j.name, j.kind, j.kind === 'txt' ? j.text : j.b64);
+    btn.textContent = '▸ ' + n;   // 恢复列表项文字(载入中占位用完还原)
+  } catch (e) { btn.textContent = '❌ ' + e.message; }
+}
+$('#btnPhoneRefresh').addEventListener('click', loadPhoneList);
+$('#btnPhoneCache').addEventListener('click', async () => {
+  try {
+    const j = await (await fetchT('/api/phone/cache', {}, 20000)).json();
+    if (!j.ok) { log('📥 ' + (j.err || '手机缓存不可读')); return; }
+    let n1 = 0, n2 = 0;
+    for (const key in (j.songTweaks || {})) {
+      const i1 = key.indexOf('|'), i2 = key.indexOf('|', i1 + 1);
+      if (i2 < 0) continue;
+      const mode = key.slice(0, i1), song = key.slice(i2 + 1);
+      const v = j.songTweaks[key] || {};
+      const patch = { mode, tracks: undefined };
+      if (mode === 'txt') { patch.startBeat = v.startBeat != null ? v.startBeat : null; patch.endBeat = v.endBeat != null ? v.endBeat : null; }
+      else { patch.cutA = v.startBeat != null ? v.startBeat : null; patch.cutB = v.endBeat != null ? v.endBeat : null; }
+      if (v.trackOn && typeof v.trackOn === 'object' && parseInfo) {
+        patch.tracks = parseInfo.tracks.map(t => ({ on: v.trackOn[t.name] !== false, tonic: 'auto' }));
+      }
+      await saveCacheName(song, patch); n1++;
+    }
+    for (const key in (j.progressSuper || {})) {
+      const i1 = key.indexOf('|'), i2 = key.indexOf('|', i1 + 1);
+      if (i2 < 0) continue;
+      await saveCacheName(key.slice(i2 + 1), { posMs: Math.max(0, +j.progressSuper[key] || 0) }); n2++;
+    }
+    log('📥 已导入手机脚本缓存: 参数 ' + n1 + ' 首,进度 ' + n2 + ' 首');
+  } catch (e) { log('❌ 导入手机缓存: ' + e.message); }
+});
+async function saveCacheName(name, patch) {
+  try { await fetchT('/api/cache', { method: 'POST', body: JSON.stringify(Object.assign({ name }, patch)),
+    headers: { 'Content-Type': 'application/json' } }, 8000); } catch (e) {}
+}
+
+/* ===== 裁剪 ===== */
+$('#btnCutApply').addEventListener('click', () => { curMs = 0; startMsNext = 0; cachedPos = 0; $('#resumeRow').style.display = 'none'; parseSong(); });
+$('#btnCutClear').addEventListener('click', () => { $('#cutA').value = ''; $('#cutB').value = ''; curMs = 0; startMsNext = 0; cachedPos = 0; $('#resumeRow').style.display = 'none'; parseSong(); });
+function refreshCutRow() {
+  $('#cutLabel').textContent = isTxt ? '起拍止拍' : '起音止音';
+  $('#cutUnit').textContent = isTxt ? '拍' : '秒';
+}
+
+/* ===== SSE ===== */
+const es = new EventSource('/api/events');
+es.addEventListener('error', () => { /* 自动重连 */ });
+es.onmessage = ev => {
+  try {
+    const j = JSON.parse(ev.data);
+    if (j.t === 'log') log(j.msg);
+    if (j.t === 'pcplay') {   // 手机端 PC模式 点的歌:网页实时显示
+      songName = j.name; playDur = (j.durationSec || 0) * 1000; curMs = 0;
+      pcSession = true; clientPaused = false; playingState = true;
+      $('#songInfo').innerHTML = '📱 <b>PC模式演奏</b>: ' + j.name + ' · 和弦 ' + (j.chords || 0) + ' · ' + fmtTime(playDur) + ' <span class="dim">(手机脚本触发,■停止可让 PC 停)</span>';
+      updateProgress(0, playDur);
+      $('#resumeRow').style.display = 'none';
+      setControls();
+      log('📱 手机端点播 → PC 演奏: ' + j.name);
+    }
+    if (j.t === 'injector') refreshStatus();
+    if (j.t === 'progress') { curMs = j.ms; playingState = true; updateProgress(j.ms, j.durationMs); }
+    if (j.t === 'play') {
+      if (j.state === 'start') { playingState = true; log('▶ 从 ' + fmtTime(j.from || 0) + ' 开始演奏'); $('#resumeRow').style.display = 'none'; }
+      if (j.state === 'paused') { playingState = false; curMs = j.pos || curMs; log('⏸ 暂停 @ ' + fmtTime(j.pos || 0)); saveCache({ posMs: j.pos || 0 }); showResume(j.pos || 0); }
+      if (j.state === 'stopped') { playingState = false; curMs = j.pos || curMs; log('■ 停止,进度记 @ ' + fmtTime(j.pos || 0)); saveCache({ posMs: j.pos || 0 }); showResume(j.pos || 0); }
+      if (j.state === 'done') {
+        playingState = false; clientPaused = false; pcSession = false;
+        log('演奏结束 ✓'); saveCache({ posMs: 0 }); showResume(0);
+        $('#resumeRow').style.display = 'none';
+      }
+      setControls();
+    }
+  } catch (e) {}
+};
+
+/* ===== 状态刷新 ===== */
+async function refreshStatus() {
+  try {
+    const j = await (await fetchT('/api/status')).json();
+    const prev = device;
+    device = j.device;
+    const st = [];
+    st.push('设备: <b>' + (j.device || '未连接') + '</b>');
+    if (j.screen) st.push('屏幕: ' + j.screen.w + '×' + j.screen.h);
+    st.push('注入器: <b>' + (j.injectorReady ? '就绪 ✓' : '未启动') + '</b>');
+    $('#status').innerHTML = st.join(' · ');
+    if (device && !prev) { loadPhoneList(); }
+    if (!device) { $('#phoneList').innerHTML = '<div class="dim" style="padding:6px">手机未连接</div>'; }
+    setControls();
+  } catch (e) { $('#status').textContent = '服务器未响应'; }
+}
+refreshStatus();
+setInterval(refreshStatus, 3000);
+(async () => {
+  try {
+    await new Promise(r => setTimeout(r, 600));
+    const j = JSON.parse(await (await fetchT('/api/midi/pos', {}, 8000)));
+    if (j.hasTrack) {
+      playDur = j.durationMs; curMs = j.ms; clientPaused = true;
+      setBarPct(j.durationMs ? j.ms / j.durationMs : 0);
+      setControls();
+      log('服务器内存里有未播完的曲子(位置 ' + fmtTime(j.ms) + ')→ 点 ▶ 或按空格续播');
+    }
+  } catch (e) {}
+})();
+
+/* ===== 进度条/键盘控制 ===== */
+function barPct(e) {
+  const r = $('#progressBar').getBoundingClientRect();
+  return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+}
+function setBarPct(p) {
+  $('#progressFill').style.width = Math.round(p * 100) + '%';
+  $('#progressText').textContent = fmtTime(p * (playDur || 0)) + ' / ' + fmtTime(playDur);
+}
+$('#progressBar').addEventListener('pointerdown', e => {
+  if (!device || !playDur) return;
+  barDragging = true;
+  try { $('#progressBar').setPointerCapture(e.pointerId); } catch (e2) {}
+  setBarPct(barPct(e));
+});
+$('#progressBar').addEventListener('pointermove', e => { if (barDragging) setBarPct(barPct(e)); });
+$('#progressBar').addEventListener('pointerup', async e => {
+  if (!barDragging) return;
+  barDragging = false;
+  const ms = Math.round(barPct(e) * (playDur || 0));
+  await doSeek(ms);
+});
+async function doSeek(ms) {
+  if (!device || !playDur) return;
+  ms = Math.max(0, Math.min(ms, playDur));
+  try {
+    const r = await fetchT('/api/midi/seek', { method: 'POST', body: JSON.stringify({ ms }), headers: { 'Content-Type': 'application/json' } });
+    const j = await r.json();
+    if (j.ok) { curMs = ms; clientPaused = !j.playing; saveCache({ posMs: ms }); if (!j.playing) { showResume(ms); cachedPos = ms; startMsNext = ms; } log('⏩ 跳转到 ' + fmtTime(ms)); }
+    else if (/尚未载入/.test(j.err || '')) {
+      /* 曲子还没在服务器上播放过(只有解析没有时间轴):定位到开头即可,不必报错 */
+      curMs = 0; startMsNext = 0; cachedPos = 0; clientPaused = true; saveCache({ posMs: 0 });
+      updateProgress(0, playDur);
+      log('⏮ 已定位到开头,点 ▶ 从头演奏');
+    }
+    else log('❌ 跳转: ' + (j.err || ''));
+  } catch (e) { log('❌ 跳转: ' + e.message); }
+}
+window.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  const tg = e.target && e.target.tagName;
+  if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;   // 输入框里空格/方向键归输入框
+  if (e.code === 'Space') { e.preventDefault(); togglePlayPause(); }
+  else if (e.code === 'ArrowLeft') { e.preventDefault(); if (playDur) doSeek(curMs - seekStep * 1000); }
+  else if (e.code === 'ArrowRight') { e.preventDefault(); if (playDur) doSeek(curMs + seekStep * 1000); }
+  else if (e.code === 'ArrowUp') { e.preventDefault(); seekStep++; updateStepLabel(); }
+  else if (e.code === 'ArrowDown') { e.preventDefault(); if (seekStep > 1) { seekStep--; updateStepLabel(); } }
+});
+updateStepLabel();
+
+async function togglePlayPause() {
+  if (!device) return;
+  if (playingState) { await pauseNow(); return; }
+  $('#btnPlay').click();
+}
+async function pauseNow() {
+  try {
+    const r = await fetchT('/api/midi/pause', { method: 'POST' }, 10000);
+    const j = await r.json();
+    if (j.ok) { clientPaused = true; playingState = false; curMs = j.pos || curMs; }
+    else log('⏸ ' + (j.err || '未在播放'));
+  } catch (e) { log('❌ 暂停: ' + e.message); }
+  setControls();
+}
+
+/* ===== 按钮 ===== */
+$('#btnPlay').addEventListener('click', async () => {
+  if (!device) return;
+  if (playingState) { log('已在播放中'); return; }
+  setControls();
+  try {
+    let body;
+    if (clientPaused) {
+      body = { resume: true, tracks: trackCfg };   // 断点在服务器内存
+    } else {
+      if (!haveSong()) { log('先选文件或从手机曲库点一首歌'); setControls(); return; }
+      const cut = cutInputsToParams();
+      body = { name: songName, tracks: trackCfg, startMs: startMsNext || 0 };
+      if (isTxt) { body.txt = midiTxt; if (cut.startBeat != null) body.startBeat = cut.startBeat; if (cut.endBeat != null) body.endBeat = cut.endBeat; }
+      else { body.b64 = midiB64; if (cut.cutA != null) body.cutA = cut.cutA; if (cut.cutB != null) body.cutB = cut.cutB; }
+    }
+    const r = await fetchT('/api/midi/play', { method: 'POST', body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' } });
+    const j = await r.json();
+    if (j.ok) {
+      playingState = true; clientPaused = false;
+      startMsNext = 0;
+      $('#resumeRow').style.display = 'none';
+      setControls();
+    } else { log('❌ ' + (j.err || '')); setControls(); }
+  } catch (e) { log('❌ 播放: ' + e.message); setControls(); }
+});
+$('#btnPause').addEventListener('click', pauseNow);
+$('#btnStop').addEventListener('click', async () => {
+  try { await fetchT('/api/stop', { method: 'POST' }, 10000); clientPaused = true; playingState = false; }
+  catch (e) { log('❌ 停止: ' + e.message); }
+  setControls();
+});
+$('#btnRestart').addEventListener('click', async () => { await doSeek(0); });
+$('#btnResume').addEventListener('click', () => { startMsNext = cachedPos; clientPaused = false; $('#btnPlay').click(); });
+$('#btnPrep').addEventListener('click', async () => {
+  $('#btnPrep').disabled = true;
+  $('#btnPrep').textContent = '准备中…';
+  try {
+    const r = await fetchT('/api/prep', { method: 'POST' }, 60000);
+    const j = await r.json();
+    if (j.ok && j.ready) log('✓ 注入器已就绪');
+    else log('❌ 注入器未就绪: ' + (j.err || '未知'));
+  } catch (e) { log('❌ 准备: ' + e.message); }
+  $('#btnPrep').textContent = '⚡ 准备注入器(首次点)';
+  $('#btnPrep').disabled = false;
+  refreshStatus();
+});
+
+/* ===== 标定(截图点 15 键;左键/右键均可,1s 防抖) ===== */
+let calibPts = {};
+let calibOrder = KEYS.slice();
+let calibIdx = 0;
+let lastCalibClick = 0;
+const calibEl = $('#calib'), calibImg = $('#calibImg');
+$('#btnCalib').addEventListener('click', async () => {
+  try {
+    const r = await fetchT('/api/screenshot', {}, 25000);
+    if (!r.ok) { const j = await r.json().catch(() => ({})); log('❌ ' + (j.err || '截图失败')); return; }
+    const blob = await r.blob();
+    calibImg.src = URL.createObjectURL(blob);
+    calibPts = {}; calibIdx = 0;
+    document.querySelectorAll('.calib-dot').forEach(d => d.remove());
+    $('#calibSave').style.display = 'none';
+    updateCalibTip();
+    calibEl.style.display = 'flex';
+  } catch (e) { log('❌ 截图: ' + e.message); }
+});
+function updateCalibTip() {
+  if (calibIdx < calibOrder.length)
+    $('#calibTip').textContent = '请点击琴键「' + calibOrder[calibIdx].replace("''", "\u2033").replace("'", "\u2032") + '」的中心 (' + (calibIdx + 1) + '/15)';
+  else $('#calibTip').textContent = '15 键全部完成 → 点「完成保存」';
+}
+function recordCalib(e) {
+  if (Date.now() - lastCalibClick < 1000) return;   // 鼠标双击防抖
+  if (calibIdx >= calibOrder.length) return;
+  lastCalibClick = Date.now();
+  const r = calibImg.getBoundingClientRect();
+  const nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
+  const k = calibOrder[calibIdx];
+  calibPts[k] = [nx.toFixed(4), ny.toFixed(4)];
+  const dot = document.createElement('div');
+  dot.className = 'calib-dot';
+  dot.textContent = k.replace("''", "\u2033").replace("'", "\u2032");
+  dot.style.cssText = 'position:fixed;color:#ff6b6b;font-weight:700;font-size:16px;' +
+    'left:' + (e.clientX - 8) + 'px;top:' + (e.clientY - 20) + 'px;pointer-events:none;z-index:99';
+  calibEl.appendChild(dot);
+  calibIdx++;
+  updateCalibTip();
+  if (calibIdx >= calibOrder.length) $('#calibSave').style.display = '';
+}
+calibImg.addEventListener('click', recordCalib);
+calibImg.addEventListener('contextmenu', e => { e.preventDefault(); recordCalib(e); });
+$('#calibSave').addEventListener('click', async () => {
+  try {
+    const old = await (await fetchT('/api/status')).json();
+    const calib = old.calib || {};
+    calib.keyPct = calibPts;
+    await fetchT('/api/calib', { method: 'POST', body: JSON.stringify(calib), headers: { 'Content-Type': 'application/json' } });
+    calibEl.style.display = 'none';
+    log('✓ 标定已保存(15 键百分比)');
+    refreshStatus();
+  } catch (e) { log('❌ 保存标定: ' + e.message); }
+});
+$('#btnResetCalib').addEventListener('click', async () => {
+  try { await fetchT('/api/calib/reset', { method: 'POST' }, 8000); log('✓ 标定已重置为默认网格'); } catch (e) { log('❌ ' + e.message); }
+});
+$('#calibCancel').addEventListener('click', () => { calibEl.style.display = 'none'; });
+</script>
+</body>
+</html>
